@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+option go_package = "./proto";
+
+message GetRequest {
+  string Key = 1;
+}
+message GetResponse {
+  bytes Value = 1;
+}
+
+message HasRequest {
+  string Key = 1;
+}
+message HasResponse {
+  bool Has = 1;
+}
+
+message GetSizeRequest {
+  string key = 1;
+}
+message GetSizeResponse {
+  uint64 Size = 1;
+}
+
+message PutRequest {
+  string Key = 1;
+  bytes Value = 2;
+}
+message PutResponse {}
+
+message DeleteRequest {
+  string Key = 1;
+}
+message DeleteResponse {}
+
+message SyncRequest {
+  string Prefix = 1;
+}
+message SyncResponse {}
+
+message QueryRequest {
+  string Prefix = 1;
+  map<string, bytes> Filters = 2;
+  map<string, bytes> Orders = 3;
+  uint64 Limit = 4;
+  uint64 Offset = 5;
+  bool KeysOnly = 6;
+  bool ReturnExpirations = 7;
+  bool ReturnSizes = 8;
+}
+message QueryResult {
+  string Key = 1;
+  bytes Value = 2;
+  uint64 Expiration = 3;
+  uint64 Size = 4;
+}
+
+message QueryFilterValueCompare {
+  string Op = 1;
+  bytes Value = 2;
+}
+message QueryFilterKeyCompare {
+  string Op = 1;
+  string Key = 2;
+}
+message QueryFilterKeyPrefix {
+  string Prefix = 1;
+}
+
+service Datastore {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Has(HasRequest) returns (HasResponse);
+  rpc GetSize(GetSizeRequest) returns (GetSizeResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Sync(SyncRequest) returns (SyncResponse);
+  rpc Query(QueryRequest) returns (stream QueryResult);
+}
