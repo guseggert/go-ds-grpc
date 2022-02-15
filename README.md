@@ -5,11 +5,21 @@ The server wraps a datastore in a gRPC server, so that datastores can run out-of
 The client implements the datastore interface, and calls out to a remote gRPC server.
 
 ## Why not HTTP?
-Theoretically this could be implemented with HTTP, but streaming results of unknown size with proper error messaging is complicated with HTTP, requiring a bespoke serialization format on top of chunked encoding, and each client language would need to implement that non-trivial logic. This is much easier with gRPC, which has streaming support and client codegen built-in.
+This could also be implemented with HTTP, but streaming results with chunked encoding and good error messaging is complicated with HTTP, and each client language would need to implement that non-trivial logic. This is much easier with gRPC, which has streaming support and client codegen built-in. The downside is that gRPC is not available for as many programming languages as HTTP.
 
-## Filters and Orders
+## Queries
+Queries support a number of challenging features for RPC:
+
+* Results are streamed
+* Filters and orders are code, not data, so we have to do extra work to use them as data
+* Structured errors are embedded in results
+
+### Filters and Orders
 Filters and orders require special treatment, since they do not have codecs by default.
 
 To support this, each filter and order must be named, and the name mapped to a codec implementation. Both client and server must do this for the desired filters and orders.
 
 This library includes support for the default datastore filters and orders, except OrderByFunction.
+
+### Errors
+Each result can also contain a structured Go error. Some of these are meaningful (for example, when a result is not found in must return datastore.ErrNotFound). When sending an error in a result, we encode the error as a standard gRPC status protobuf in the same way we do API calls, and apply the same translation logic on the client side, so that datastore-specific errors remain consistent.

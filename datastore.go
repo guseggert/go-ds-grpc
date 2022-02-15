@@ -71,7 +71,7 @@ func New(client pb.DatastoreClient, optFns ...func(o *Options)) *datastore {
 func (d *datastore) Get(ctx context.Context, key ds.Key) (value []byte, err error) {
 	res, err := d.Client.Get(ctx, &pb.GetRequest{Key: key.String()})
 	if err != nil {
-		return nil, err
+		return nil, GRPCToDSError(err)
 	}
 	return res.Value, nil
 }
@@ -79,7 +79,7 @@ func (d *datastore) Get(ctx context.Context, key ds.Key) (value []byte, err erro
 func (d *datastore) Has(ctx context.Context, key ds.Key) (exists bool, err error) {
 	res, err := d.Client.Has(ctx, &pb.HasRequest{Key: key.String()})
 	if err != nil {
-		return false, err
+		return false, GRPCToDSError(err)
 	}
 	return res.Has, nil
 }
@@ -87,23 +87,23 @@ func (d *datastore) Has(ctx context.Context, key ds.Key) (exists bool, err error
 func (d *datastore) GetSize(ctx context.Context, key ds.Key) (size int, err error) {
 	res, err := d.Client.GetSize(ctx, &pb.GetSizeRequest{Key: key.String()})
 	if err != nil {
-		return 0, err
+		return 0, GRPCToDSError(err)
 	}
 	return int(res.Size), nil
 }
 func (d *datastore) Put(ctx context.Context, key ds.Key, value []byte) error {
 	_, err := d.Client.Put(ctx, &pb.PutRequest{Key: key.String(), Value: value})
-	return err
+	return GRPCToDSError(err)
 }
 
 func (d *datastore) Delete(ctx context.Context, key ds.Key) error {
 	_, err := d.Client.Delete(ctx, &pb.DeleteRequest{Key: key.String()})
-	return err
+	return GRPCToDSError(err)
 }
 
 func (d *datastore) Sync(ctx context.Context, prefix ds.Key) error {
 	_, err := d.Client.Sync(ctx, &pb.SyncRequest{Prefix: prefix.String()})
-	return err
+	return GRPCToDSError(err)
 }
 
 func (d *datastore) Close() error {
@@ -151,7 +151,7 @@ func (d *datastore) Query(ctx context.Context, q query.Query) (query.Results, er
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, GRPCToDSError(err)
 	}
 
 	iter := &queryIterator{stream: res}
@@ -159,4 +159,8 @@ func (d *datastore) Query(ctx context.Context, q query.Query) (query.Results, er
 		Next:  iter.Next,
 		Close: iter.Close,
 	}), nil
+}
+
+func (d *datastore) Batch(ctx context.Context) (ds.Batch, error) {
+	return ds.NewBasicBatch(d), nil
 }

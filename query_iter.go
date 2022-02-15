@@ -7,6 +7,8 @@ import (
 
 	pb "github.com/guseggert/go-ds-grpc/proto"
 	"github.com/ipfs/go-datastore/query"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/status"
 )
 
 // queryIterator wraps a gRPC stream of query results with methods that can be used for query.ResultsFromIterator
@@ -41,23 +43,33 @@ func (q *queryIterator) Next() (query.Result, bool) {
 		q.Close()
 		return query.Result{Error: err}, true
 	}
-	return query.Result{
+	result := query.Result{
 		Entry: query.Entry{
 			Key:        queryResult.Key,
 			Value:      queryResult.Value,
 			Expiration: time.Unix(int64(queryResult.Expiration), 0),
 			Size:       int(queryResult.Size),
 		},
-	}, true
+	}
+	if queryResult.Error != nil {
+		// unpack the status protobuf and apply error transformation
+		sp := &spb.Status{}
+		err = queryResult.Error.UnmarshalTo(sp)
+		if err != nil {
+			// the problem is about message contents, so no reason to stop
+			return query.Result{Error: err}, true
+		}
+		s := status.FromProto(sp)
+		result.Error = GRPCToDSError(s.Err())
+	}
+
+	return result, true
 }
 
 func (q *queryIterator) isClosed() bool {
 	q.closedMut.RLock()
 	defer q.closedMut.RUnlock()
 	return q.closed
-}
-
-func (q *queryIterator) close() {
 }
 
 func (q *queryIterator) Close() error {

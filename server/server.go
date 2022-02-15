@@ -8,6 +8,7 @@ import (
 	pb "github.com/guseggert/go-ds-grpc/proto"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type grpcServer struct {
@@ -61,32 +62,44 @@ func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 func (s *grpcServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	v, err := s.DS.Get(ctx, ds.NewKey(req.Key))
 	if err != nil {
-		return nil, err
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.GetResponse{Value: v}, nil
 }
 func (s *grpcServer) Has(ctx context.Context, req *pb.HasRequest) (*pb.HasResponse, error) {
 	ok, err := s.DS.Has(ctx, ds.NewKey(req.Key))
 	if err != nil {
-		return nil, err
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.HasResponse{Has: ok}, nil
 }
 func (s *grpcServer) GetSize(ctx context.Context, req *pb.GetSizeRequest) (*pb.GetSizeResponse, error) {
 	size, err := s.DS.GetSize(ctx, ds.NewKey(req.Key))
 	if err != nil {
-		return nil, err
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.GetSizeResponse{Size: uint64(size)}, nil
 }
 func (s *grpcServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
-	return &pb.PutResponse{}, s.DS.Put(ctx, ds.NewKey(req.Key), req.Value)
+	err := s.DS.Put(ctx, ds.NewKey(req.Key), req.Value)
+	if err != nil {
+		return &pb.PutResponse{}, grpcds.DSToGRPCError(err).Err()
+	}
+	return &pb.PutResponse{}, nil
 }
 func (s *grpcServer) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
-	return &pb.DeleteResponse{}, s.DS.Delete(ctx, ds.NewKey(req.Key))
+	err := s.DS.Delete(ctx, ds.NewKey(req.Key))
+	if err != nil {
+		return &pb.DeleteResponse{}, grpcds.DSToGRPCError(err).Err()
+	}
+	return &pb.DeleteResponse{}, nil
 }
 func (s *grpcServer) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
-	return &pb.SyncResponse{}, s.DS.Sync(ctx, ds.NewKey(req.Prefix))
+	err := s.DS.Sync(ctx, ds.NewKey(req.Prefix))
+	if err != nil {
+		return &pb.SyncResponse{}, grpcds.DSToGRPCError(err).Err()
+	}
+	return &pb.SyncResponse{}, nil
 }
 func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer) error {
 	filters := []query.Filter{}
@@ -126,16 +139,27 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 		ReturnsSizes:      req.ReturnSizes,
 	})
 	if err != nil {
-		return err
+		return grpcds.DSToGRPCError(err).Err()
 	}
 	defer results.Close()
 	for res := range results.Next() {
-		err = stream.SendMsg(&pb.QueryResult{
+		msg := &pb.QueryResult{
 			Key:        res.Key,
 			Value:      res.Value,
 			Expiration: uint64(res.Expiration.Unix()),
 			Size:       uint64(res.Size),
-		})
+		}
+		// pack errors as status protobufs, reusing the same logic for general API errors
+		if res.Error != nil {
+			grpcErr := grpcds.DSToGRPCError(res.Error)
+			packedErr, err := anypb.New(grpcErr.Proto())
+			if err != nil {
+				return err
+			}
+			msg.Error = packedErr
+		}
+
+		err = stream.SendMsg(msg)
 		if err != nil {
 			return err
 		}

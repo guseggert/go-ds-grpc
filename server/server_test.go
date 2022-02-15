@@ -19,14 +19,15 @@ func TestGRPCServer(t *testing.T) {
 	ctx := context.Background()
 	s := grpc.NewServer()
 	pb.RegisterDatastoreServer(s, New(dssync.MutexWrap(ds.NewMapDatastore())))
-	l, err := net.Listen("tcp", "127.0.0.1:8383")
+	l, err := net.Listen("tcp", "127.0.0.1:")
+	// l, err := net.Listen("unix", "/home/gus/ipfs.sock")
 	if err != nil {
 		panic(err)
 	}
 	go s.Serve(l)
 	defer s.Stop()
 
-	conn, err := grpc.Dial("127.0.0.1:8383", grpc.WithInsecure())
+	conn, err := grpc.Dial(l.Addr().String(), grpc.WithInsecure())
 	if err != nil {
 		panic(err)
 	}

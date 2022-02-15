@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 option go_package = "./proto";
+import "google/protobuf/any.proto";
 
 message GetRequest {
   string Key = 1;
@@ -54,6 +55,7 @@ message QueryResult {
   bytes Value = 2;
   uint64 Expiration = 3;
   uint64 Size = 4;
+  google.protobuf.Any Error = 5;
 }
 
 message QueryFilterValueCompare {
