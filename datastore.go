@@ -113,7 +113,10 @@ func (d *datastore) Close() error {
 func (d *datastore) Query(ctx context.Context, q query.Query) (query.Results, error) {
 	filters := map[string][]byte{}
 	for _, f := range q.Filters {
-		typ := reflect.TypeOf(f).Elem()
+		typ := reflect.TypeOf(f)
+		if typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
+		}
 		codec, ok := d.QueryFilterCodecs[typ]
 		if !ok {
 			return nil, fmt.Errorf("no codec registered for query filter '%s'", typ)
@@ -127,7 +130,10 @@ func (d *datastore) Query(ctx context.Context, q query.Query) (query.Results, er
 
 	orders := map[string][]byte{}
 	for _, o := range q.Orders {
-		typ := reflect.TypeOf(o).Elem()
+		typ := reflect.TypeOf(o)
+		if typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
+		}
 		codec, ok := d.QueryOrderCodecs[typ]
 		if !ok {
 			return nil, fmt.Errorf("no codec registered for query order '%s'", typ)
