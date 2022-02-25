@@ -33,6 +33,10 @@ func GRPCToDSError(err error) error {
 		if errStatus.Message() == errMsgBatchUnsupported {
 			return ds.ErrBatchUnsupported
 		}
+		// if the context is canceled or its deadline passed, swallow it, which is generally what IPFS code expects
+		if errStatus.Code() == codes.Canceled || errStatus.Code() == codes.DeadlineExceeded {
+			return nil
+		}
 	}
 	return err
 }
