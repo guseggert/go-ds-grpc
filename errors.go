@@ -1,7 +1,11 @@
 package grpcds
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"reflect"
+	"strings"
 
 	ds "github.com/ipfs/go-datastore"
 	"google.golang.org/grpc/codes"
@@ -25,6 +29,9 @@ func DSToGRPCError(err error) *status.Status {
 
 // GRPCToDSError converts a well-formed gRPC error into a Datastore error.
 func GRPCToDSError(err error) error {
+	if err == nil {
+		return nil
+	}
 	errStatus, ok := status.FromError(err)
 	if ok {
 		if errStatus.Code() == codes.NotFound {
@@ -33,10 +40,15 @@ func GRPCToDSError(err error) error {
 		if errStatus.Message() == errMsgBatchUnsupported {
 			return ds.ErrBatchUnsupported
 		}
-		// if the context is canceled or its deadline passed, swallow it, which is generally what IPFS code expects
-		if errStatus.Code() == codes.Canceled || errStatus.Code() == codes.DeadlineExceeded {
-			return nil
+		if errStatus.Code() == codes.Canceled {
+			return context.Canceled
 		}
+		if errStatus.Code() == codes.DeadlineExceeded {
+			return context.DeadlineExceeded
+		}
+	}
+	if strings.Contains(err.Error(), "context canceled") {
+		fmt.Printf("type of error: %v\n", reflect.TypeOf(err).String())
 	}
 	return err
 }

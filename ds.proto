@@ -2,6 +2,8 @@ syntax = "proto3";
 
 option go_package = "./proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 
 message GetRequest {
   string Key = 1;
@@ -70,6 +72,54 @@ message QueryFilterKeyPrefix {
   string Prefix = 1;
 }
 
+message BatchRequest {
+  enum OpCode {
+    PUT = 0;
+    DELETE = 1;
+  }
+  message Op {
+    OpCode opCode = 1;
+    string Key = 2;
+    bytes Value = 3;    
+  }
+  repeated Op ops = 1;
+}
+message BatchResponse {}
+
+message CheckRequest{}
+message CheckResponse{}
+
+message ScrubRequest {}
+message ScrubResponse {}
+
+message CollectGarbageRequest {}
+message CollectGarbageResponse {}
+
+message DiskUsageRequest {}
+message DiskUsageResponse {
+  uint64 Size = 1;
+}
+
+message PutWithTTLRequest {
+  string Key = 1;
+  bytes Value = 2;
+  google.protobuf.Duration TTL = 3;
+}
+message PutWithTTLResponse {}
+
+message SetTTLRequest {
+  string Key = 1;
+  google.protobuf.Duration TTL = 2;
+}
+message SetTTLResponse {}
+
+message GetExpirationRequest {
+  string Key = 1;
+}
+message GetExpirationResponse {
+  google.protobuf.Timestamp Expiration = 1;
+}
+
 service Datastore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Has(HasRequest) returns (HasResponse);
@@ -78,4 +128,12 @@ service Datastore {
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc Sync(SyncRequest) returns (SyncResponse);
   rpc Query(QueryRequest) returns (stream QueryResult);
+  rpc Batch(BatchRequest) returns (BatchResponse);
+  rpc Check(CheckRequest) returns (CheckResponse);
+  rpc Scrub(ScrubRequest) returns (ScrubResponse);
+  rpc CollectGarbage(CollectGarbageRequest) returns (CollectGarbageResponse);
+  rpc DiskUsage(DiskUsageRequest) returns (DiskUsageResponse);
+  rpc PutWithTTL(PutWithTTLRequest) returns (PutWithTTLResponse);
+  rpc SetTTL(SetTTLRequest) returns (SetTTLResponse);
+  rpc GetExpiration(GetExpirationRequest) returns (GetExpirationResponse);
 }

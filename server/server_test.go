@@ -57,3 +57,22 @@ func TestGRPCServer(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("/%d", i), e.Key)
 	}
 }
+
+// make sure that all of the implementations implement the right interfaces
+type mega struct {
+	grpcds.Datastore
+	grpcds.Batching
+	grpcds.Scrubbed
+	grpcds.Checked
+	grpcds.Persistent
+	grpcds.GC
+	grpcds.TTL
+}
+
+var _ ds.Datastore = (*mega)(nil)
+var _ ds.Batching = (*mega)(nil)
+var _ ds.CheckedDatastore = (*mega)(nil)
+var _ ds.ScrubbedDatastore = (*mega)(nil)
+var _ ds.GCDatastore = (*mega)(nil)
+var _ ds.PersistentDatastore = (*mega)(nil)
+var _ ds.TTLDatastore = (*mega)(nil)

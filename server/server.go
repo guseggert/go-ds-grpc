@@ -8,7 +8,10 @@ import (
 	pb "github.com/guseggert/go-ds-grpc/proto"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type grpcServer struct {
@@ -28,6 +31,7 @@ func WithQueryFilterCodec(codec grpcds.QueryFilterCodec) func(o *Options) {
 		o.QueryFilterCodecs[codec.Name()] = codec
 	}
 }
+
 func WithQueryOrderCodec(codec grpcds.QueryOrderCodec) func(o *Options) {
 	return func(o *Options) {
 		o.QueryOrderCodecs[codec.Name()] = codec
@@ -66,6 +70,7 @@ func (s *grpcServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetRespon
 	}
 	return &pb.GetResponse{Value: v}, nil
 }
+
 func (s *grpcServer) Has(ctx context.Context, req *pb.HasRequest) (*pb.HasResponse, error) {
 	ok, err := s.DS.Has(ctx, ds.NewKey(req.Key))
 	if err != nil {
@@ -73,6 +78,7 @@ func (s *grpcServer) Has(ctx context.Context, req *pb.HasRequest) (*pb.HasRespon
 	}
 	return &pb.HasResponse{Has: ok}, nil
 }
+
 func (s *grpcServer) GetSize(ctx context.Context, req *pb.GetSizeRequest) (*pb.GetSizeResponse, error) {
 	size, err := s.DS.GetSize(ctx, ds.NewKey(req.Key))
 	if err != nil {
@@ -80,27 +86,31 @@ func (s *grpcServer) GetSize(ctx context.Context, req *pb.GetSizeRequest) (*pb.G
 	}
 	return &pb.GetSizeResponse{Size: uint64(size)}, nil
 }
+
 func (s *grpcServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	err := s.DS.Put(ctx, ds.NewKey(req.Key), req.Value)
 	if err != nil {
-		return &pb.PutResponse{}, grpcds.DSToGRPCError(err).Err()
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.PutResponse{}, nil
 }
+
 func (s *grpcServer) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
 	err := s.DS.Delete(ctx, ds.NewKey(req.Key))
 	if err != nil {
-		return &pb.DeleteResponse{}, grpcds.DSToGRPCError(err).Err()
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.DeleteResponse{}, nil
 }
+
 func (s *grpcServer) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
 	err := s.DS.Sync(ctx, ds.NewKey(req.Prefix))
 	if err != nil {
-		return &pb.SyncResponse{}, grpcds.DSToGRPCError(err).Err()
+		return nil, grpcds.DSToGRPCError(err).Err()
 	}
 	return &pb.SyncResponse{}, nil
 }
+
 func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer) error {
 	filters := []query.Filter{}
 	for name, value := range req.Filters {
@@ -165,4 +175,96 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 		}
 	}
 	return nil
+}
+
+func (s *grpcServer) Batch(ctx context.Context, req *pb.BatchRequest) (*pb.BatchResponse, error) {
+	batching, ok := s.DS.(ds.Batching)
+	if !ok {
+		return nil, grpcds.DSToGRPCError(ds.ErrBatchUnsupported).Err()
+	}
+	batch, err := batching.Batch(ctx)
+	if err != nil {
+		return nil, grpcds.DSToGRPCError(err).Err()
+	}
+	for _, op := range req.Ops {
+		switch op.OpCode {
+		case pb.BatchRequest_DELETE:
+			err := batch.Delete(ctx, ds.NewKey(op.Key))
+			if err != nil {
+				return nil, grpcds.DSToGRPCError(err).Err()
+			}
+		case pb.BatchRequest_PUT:
+			err := batch.Put(ctx, ds.NewKey(op.Key), op.Value)
+			if err != nil {
+				return nil, grpcds.DSToGRPCError(err).Err()
+			}
+		default:
+			return nil, grpcds.DSToGRPCError(fmt.Errorf("unknown op '%s'\n", op.OpCode.String())).Err()
+		}
+	}
+	err = batch.Commit(ctx)
+	if err != nil {
+		return nil, grpcds.DSToGRPCError(err).Err()
+	}
+	return nil, nil
+}
+
+func (s *grpcServer) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResponse, error) {
+	checked, ok := s.DS.(ds.CheckedDatastore)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a checked datastore").Err()
+	}
+	return nil, grpcds.DSToGRPCError(checked.Check(ctx)).Err()
+}
+
+func (s *grpcServer) Scrub(ctx context.Context, req *pb.ScrubRequest) (*pb.ScrubResponse, error) {
+	scrubbed, ok := s.DS.(ds.ScrubbedDatastore)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a scrubbed datastore").Err()
+	}
+	return nil, grpcds.DSToGRPCError(scrubbed.Scrub(ctx)).Err()
+}
+
+func (s *grpcServer) CollectGarbage(ctx context.Context, req *pb.CollectGarbageRequest) (*pb.CollectGarbageResponse, error) {
+	gc, ok := s.DS.(ds.GCDatastore)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a GC datastore").Err()
+	}
+	return nil, grpcds.DSToGRPCError(gc.CollectGarbage(ctx)).Err()
+}
+
+func (s *grpcServer) DiskUsage(ctx context.Context, req *pb.DiskUsageRequest) (*pb.DiskUsageResponse, error) {
+	persistent, ok := s.DS.(ds.PersistentDatastore)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a persistent datastore").Err()
+	}
+	size, err := persistent.DiskUsage(ctx)
+	return &pb.DiskUsageResponse{Size: size}, grpcds.DSToGRPCError(err).Err()
+}
+
+func (s *grpcServer) PutWithTTL(ctx context.Context, req *pb.PutWithTTLRequest) (*pb.PutWithTTLResponse, error) {
+	ttl, ok := s.DS.(ds.TTL)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a TTL datastore").Err()
+	}
+	err := ttl.PutWithTTL(ctx, ds.NewKey(req.Key), req.Value, req.TTL.AsDuration())
+	return nil, grpcds.DSToGRPCError(err).Err()
+}
+
+func (s *grpcServer) SetTTL(ctx context.Context, req *pb.SetTTLRequest) (*pb.SetTTLResponse, error) {
+	ttl, ok := s.DS.(ds.TTL)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a TTL datastore").Err()
+	}
+	err := ttl.SetTTL(ctx, ds.NewKey(req.Key), req.TTL.AsDuration())
+	return nil, grpcds.DSToGRPCError(err).Err()
+}
+
+func (s *grpcServer) GetExpiration(ctx context.Context, req *pb.GetExpirationRequest) (*pb.GetExpirationResponse, error) {
+	ttl, ok := s.DS.(ds.TTL)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a TTL datastore").Err()
+	}
+	expiration, err := ttl.GetExpiration(ctx, ds.NewKey(req.Key))
+	return &pb.GetExpirationResponse{Expiration: timestamppb.New(expiration)}, grpcds.DSToGRPCError(err).Err()
 }
