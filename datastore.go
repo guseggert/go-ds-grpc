@@ -34,6 +34,7 @@ func WithQueryFilterCodec(codec QueryFilterCodec) func(o *Options) {
 		o.QueryFilterCodecs[typ] = codec
 	}
 }
+
 func WithQueryOrderCodec(codec QueryOrderCodec) func(o *Options) {
 	return func(o *Options) {
 		typ := codec.Type()
@@ -44,7 +45,11 @@ func WithQueryOrderCodec(codec QueryOrderCodec) func(o *Options) {
 	}
 }
 
-func New(client pb.DatastoreClient, optFns ...func(o *Options)) *Datastore {
+// New constructs a new shim client that implements the Datastore interface.
+// This negotiates the datastore features that the remote datastore supports,
+// and constructs an underlying representation that only implements those features,
+// so that type assertions on feature interfaces work as expected.
+func New(ctx context.Context, client pb.DatastoreClient, optFns ...func(o *Options)) (ds.Datastore, error) {
 	opts := &Options{
 		QueryFilterCodecs: map[reflect.Type]QueryFilterCodec{},
 		QueryOrderCodecs:  map[reflect.Type]QueryOrderCodec{},
@@ -63,11 +68,21 @@ func New(client pb.DatastoreClient, optFns ...func(o *Options)) *Datastore {
 		optFn(opts)
 	}
 
-	return &Datastore{
+	grpcDS := &Datastore{
 		Client:            client,
 		QueryFilterCodecs: opts.QueryFilterCodecs,
 		QueryOrderCodecs:  opts.QueryOrderCodecs,
 	}
+	resp, err := client.Features(ctx, &pb.FeaturesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("negotiating datastore features: %w", err)
+	}
+
+	// scope down the concrete type to implement only the methods that the
+	// remote datastore supports
+	dsImpl := newWithFeatures(resp.Features, grpcDS)
+
+	return dsImpl, nil
 }
 
 func (d *Datastore) Get(ctx context.Context, key ds.Key) (value []byte, err error) {
@@ -169,12 +184,11 @@ func (d *Datastore) Query(ctx context.Context, q query.Query) (query.Results, er
 	}), nil
 }
 
-type Batching struct {
-	Client pb.DatastoreClient
-}
-
-func (d *Batching) Batch(ctx context.Context) (ds.Batch, error) {
-	return &batch{client: d.Client, ops: map[ds.Key]batchOp{}}, nil
+func (d *Datastore) Batch(ctx context.Context) (ds.Batch, error) {
+	return &batch{
+		ds:  d,
+		ops: map[ds.Key]batchOp{},
+	}, nil
 }
 
 type batchOp struct {
@@ -183,8 +197,8 @@ type batchOp struct {
 }
 
 type batch struct {
-	client pb.DatastoreClient
-	ops    map[ds.Key]batchOp
+	ds  *Datastore
+	ops map[ds.Key]batchOp
 }
 
 func (b *batch) Put(ctx context.Context, key ds.Key, value []byte) error {
@@ -214,51 +228,31 @@ func (b *batch) Commit(ctx context.Context) error {
 			})
 		}
 	}
-	_, err = b.client.Batch(ctx, &batchReq)
+	_, err = b.ds.Client.Batch(ctx, &batchReq)
 	return GRPCToDSError(err)
 }
 
-type Checked struct {
-	Client pb.DatastoreClient
-}
-
-func (d *Checked) Check(ctx context.Context) error {
+func (d *Datastore) Check(ctx context.Context) error {
 	_, err := d.Client.Check(ctx, &pb.CheckRequest{})
 	return GRPCToDSError(err)
 }
 
-type Scrubbed struct {
-	Client pb.DatastoreClient
-}
-
-func (d *Scrubbed) Scrub(ctx context.Context) error {
+func (d *Datastore) Scrub(ctx context.Context) error {
 	_, err := d.Client.Scrub(ctx, &pb.ScrubRequest{})
 	return GRPCToDSError(err)
 }
 
-type GC struct {
-	Client pb.DatastoreClient
-}
-
-func (d *GC) CollectGarbage(ctx context.Context) error {
+func (d *Datastore) CollectGarbage(ctx context.Context) error {
 	_, err := d.Client.CollectGarbage(ctx, &pb.CollectGarbageRequest{})
 	return GRPCToDSError(err)
 }
 
-type Persistent struct {
-	Client pb.DatastoreClient
-}
-
-func (d *Persistent) DiskUsage(ctx context.Context) (uint64, error) {
+func (d *Datastore) DiskUsage(ctx context.Context) (uint64, error) {
 	res, err := d.Client.DiskUsage(ctx, &pb.DiskUsageRequest{})
 	return res.Size, GRPCToDSError(err)
 }
 
-type TTL struct {
-	Client pb.DatastoreClient
-}
-
-func (d *TTL) PutWithTTL(ctx context.Context, key ds.Key, value []byte, ttl time.Duration) error {
+func (d *Datastore) PutWithTTL(ctx context.Context, key ds.Key, value []byte, ttl time.Duration) error {
 	_, err := d.Client.PutWithTTL(ctx, &pb.PutWithTTLRequest{
 		Key:   key.String(),
 		Value: value,
@@ -267,7 +261,7 @@ func (d *TTL) PutWithTTL(ctx context.Context, key ds.Key, value []byte, ttl time
 	return GRPCToDSError(err)
 }
 
-func (d *TTL) SetTTL(ctx context.Context, key ds.Key, ttl time.Duration) error {
+func (d *Datastore) SetTTL(ctx context.Context, key ds.Key, ttl time.Duration) error {
 	_, err := d.Client.SetTTL(ctx, &pb.SetTTLRequest{
 		Key: key.String(),
 		TTL: durationpb.New(ttl),
@@ -275,9 +269,14 @@ func (d *TTL) SetTTL(ctx context.Context, key ds.Key, ttl time.Duration) error {
 	return GRPCToDSError(err)
 }
 
-func (d *TTL) GetExpiration(ctx context.Context, key ds.Key) (time.Time, error) {
+func (d *Datastore) GetExpiration(ctx context.Context, key ds.Key) (time.Time, error) {
 	res, err := d.Client.GetExpiration(ctx, &pb.GetExpirationRequest{
 		Key: key.String(),
 	})
 	return res.Expiration.AsTime(), GRPCToDSError(err)
+}
+
+func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, error) {
+	// TODO: implement
+	return nil, nil
 }

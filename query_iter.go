@@ -41,7 +41,7 @@ func (q *queryIterator) Next() (query.Result, bool) {
 	}
 	if err != nil {
 		q.Close()
-		return query.Result{Error: err}, true
+		return query.Result{Error: GRPCToDSError(err)}, true
 	}
 	result := query.Result{
 		Entry: query.Entry{
@@ -57,7 +57,7 @@ func (q *queryIterator) Next() (query.Result, bool) {
 		err = queryResult.Error.UnmarshalTo(sp)
 		if err != nil {
 			// the problem is about message contents, so no reason to stop
-			return query.Result{Error: err}, true
+			return query.Result{Error: GRPCToDSError(err)}, true
 		}
 		s := status.FromProto(sp)
 		result.Error = GRPCToDSError(s.Err())

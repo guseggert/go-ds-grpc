@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"io/ioutil"
 
 	grpcds "github.com/guseggert/go-ds-grpc"
 	pb "github.com/guseggert/go-ds-grpc/proto"
@@ -61,6 +63,32 @@ func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 		QueryFilterCodecs: opts.QueryFilterCodecs,
 		QueryOrderCodecs:  opts.QueryOrderCodecs,
 	}
+}
+
+func (s *grpcServer) Features(context.Context, *pb.FeaturesRequest) (*pb.FeaturesResponse, error) {
+	resp := pb.FeaturesResponse{}
+	if _, ok := s.DS.(ds.Batching); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_BATCHING)
+	}
+	if _, ok := s.DS.(ds.CheckedDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_CHECKED)
+	}
+	if _, ok := s.DS.(ds.ScrubbedDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_SCRUBBED)
+	}
+	if _, ok := s.DS.(ds.GCDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_GC)
+	}
+	if _, ok := s.DS.(ds.PersistentDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_PERSISTENT)
+	}
+	if _, ok := s.DS.(ds.TTLDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_TTL)
+	}
+	if _, ok := s.DS.(ds.TxnDatastore); ok {
+		resp.Features = append(resp.Features, pb.FeaturesResponse_TRANSACTION)
+	}
+	return &resp, nil
 }
 
 func (s *grpcServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
@@ -161,6 +189,11 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 		}
 		// pack errors as status protobufs, reusing the same logic for general API errors
 		if res.Error != nil {
+			writeErr := ioutil.WriteFile("/tmp/queryerr-server", []byte(fmt.Sprintf("got a query result error: %s\n\n", res.Error.Error())), fs.ModeAppend)
+			if writeErr != nil {
+				panic(writeErr)
+			}
+
 			grpcErr := grpcds.DSToGRPCError(res.Error)
 			packedErr, err := anypb.New(grpcErr.Proto())
 			if err != nil {
@@ -180,6 +213,7 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 func (s *grpcServer) Batch(ctx context.Context, req *pb.BatchRequest) (*pb.BatchResponse, error) {
 	batching, ok := s.DS.(ds.Batching)
 	if !ok {
+		fmt.Printf("uhhh batching is not supported asshole\n")
 		return nil, grpcds.DSToGRPCError(ds.ErrBatchUnsupported).Err()
 	}
 	batch, err := batching.Batch(ctx)
@@ -206,7 +240,7 @@ func (s *grpcServer) Batch(ctx context.Context, req *pb.BatchRequest) (*pb.Batch
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
-	return nil, nil
+	return &pb.BatchResponse{}, nil
 }
 
 func (s *grpcServer) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResponse, error) {
@@ -214,7 +248,7 @@ func (s *grpcServer) Check(ctx context.Context, req *pb.CheckRequest) (*pb.Check
 	if !ok {
 		return nil, status.New(codes.Unimplemented, "datastore is not a checked datastore").Err()
 	}
-	return nil, grpcds.DSToGRPCError(checked.Check(ctx)).Err()
+	return &pb.CheckResponse{}, grpcds.DSToGRPCError(checked.Check(ctx)).Err()
 }
 
 func (s *grpcServer) Scrub(ctx context.Context, req *pb.ScrubRequest) (*pb.ScrubResponse, error) {
@@ -222,7 +256,7 @@ func (s *grpcServer) Scrub(ctx context.Context, req *pb.ScrubRequest) (*pb.Scrub
 	if !ok {
 		return nil, status.New(codes.Unimplemented, "datastore is not a scrubbed datastore").Err()
 	}
-	return nil, grpcds.DSToGRPCError(scrubbed.Scrub(ctx)).Err()
+	return &pb.ScrubResponse{}, grpcds.DSToGRPCError(scrubbed.Scrub(ctx)).Err()
 }
 
 func (s *grpcServer) CollectGarbage(ctx context.Context, req *pb.CollectGarbageRequest) (*pb.CollectGarbageResponse, error) {
@@ -230,7 +264,7 @@ func (s *grpcServer) CollectGarbage(ctx context.Context, req *pb.CollectGarbageR
 	if !ok {
 		return nil, status.New(codes.Unimplemented, "datastore is not a GC datastore").Err()
 	}
-	return nil, grpcds.DSToGRPCError(gc.CollectGarbage(ctx)).Err()
+	return &pb.CollectGarbageResponse{}, grpcds.DSToGRPCError(gc.CollectGarbage(ctx)).Err()
 }
 
 func (s *grpcServer) DiskUsage(ctx context.Context, req *pb.DiskUsageRequest) (*pb.DiskUsageResponse, error) {
@@ -248,7 +282,7 @@ func (s *grpcServer) PutWithTTL(ctx context.Context, req *pb.PutWithTTLRequest) 
 		return nil, status.New(codes.Unimplemented, "datastore is not a TTL datastore").Err()
 	}
 	err := ttl.PutWithTTL(ctx, ds.NewKey(req.Key), req.Value, req.TTL.AsDuration())
-	return nil, grpcds.DSToGRPCError(err).Err()
+	return &pb.PutWithTTLResponse{}, grpcds.DSToGRPCError(err).Err()
 }
 
 func (s *grpcServer) SetTTL(ctx context.Context, req *pb.SetTTLRequest) (*pb.SetTTLResponse, error) {
@@ -257,7 +291,7 @@ func (s *grpcServer) SetTTL(ctx context.Context, req *pb.SetTTLRequest) (*pb.Set
 		return nil, status.New(codes.Unimplemented, "datastore is not a TTL datastore").Err()
 	}
 	err := ttl.SetTTL(ctx, ds.NewKey(req.Key), req.TTL.AsDuration())
-	return nil, grpcds.DSToGRPCError(err).Err()
+	return &pb.SetTTLResponse{}, grpcds.DSToGRPCError(err).Err()
 }
 
 func (s *grpcServer) GetExpiration(ctx context.Context, req *pb.GetExpirationRequest) (*pb.GetExpirationResponse, error) {

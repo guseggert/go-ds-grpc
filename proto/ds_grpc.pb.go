@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DatastoreClient interface {
+	Features(ctx context.Context, in *FeaturesRequest, opts ...grpc.CallOption) (*FeaturesResponse, error)
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	Has(ctx context.Context, in *HasRequest, opts ...grpc.CallOption) (*HasResponse, error)
 	GetSize(ctx context.Context, in *GetSizeRequest, opts ...grpc.CallOption) (*GetSizeResponse, error)
@@ -45,6 +46,15 @@ type datastoreClient struct {
 
 func NewDatastoreClient(cc grpc.ClientConnInterface) DatastoreClient {
 	return &datastoreClient{cc}
+}
+
+func (c *datastoreClient) Features(ctx context.Context, in *FeaturesRequest, opts ...grpc.CallOption) (*FeaturesResponse, error) {
+	out := new(FeaturesResponse)
+	err := c.cc.Invoke(ctx, "/Datastore/Features", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *datastoreClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
@@ -209,6 +219,7 @@ func (c *datastoreClient) GetExpiration(ctx context.Context, in *GetExpirationRe
 // All implementations must embed UnimplementedDatastoreServer
 // for forward compatibility
 type DatastoreServer interface {
+	Features(context.Context, *FeaturesRequest) (*FeaturesResponse, error)
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Has(context.Context, *HasRequest) (*HasResponse, error)
 	GetSize(context.Context, *GetSizeRequest) (*GetSizeResponse, error)
@@ -231,6 +242,9 @@ type DatastoreServer interface {
 type UnimplementedDatastoreServer struct {
 }
 
+func (UnimplementedDatastoreServer) Features(context.Context, *FeaturesRequest) (*FeaturesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Features not implemented")
+}
 func (UnimplementedDatastoreServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
@@ -287,6 +301,24 @@ type UnsafeDatastoreServer interface {
 
 func RegisterDatastoreServer(s grpc.ServiceRegistrar, srv DatastoreServer) {
 	s.RegisterService(&Datastore_ServiceDesc, srv)
+}
+
+func _Datastore_Features_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FeaturesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatastoreServer).Features(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Datastore/Features",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatastoreServer).Features(ctx, req.(*FeaturesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Datastore_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -569,6 +601,10 @@ var Datastore_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "Datastore",
 	HandlerType: (*DatastoreServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Features",
+			Handler:    _Datastore_Features_Handler,
+		},
 		{
 			MethodName: "Get",
 			Handler:    _Datastore_Get_Handler,

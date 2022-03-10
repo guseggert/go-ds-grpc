@@ -25,31 +25,8 @@ This library includes support for the default datastore filters and orders, exce
 Each result can also contain a structured Go error. Some of these are meaningful (for example, when a result is not found in must return datastore.ErrNotFound). When sending an error in a result, we encode the error as a standard gRPC status protobuf in the same way we do API calls, and apply the same translation logic on the client side, so that datastore-specific errors remain consistent.
 
 ## Datastore Features
-Due to limitations in the way the Datastore interfaces are defined, if you need extra Datastore interfaces such as the ones listed below, then on the client-side you need to define your own struct that embeds the desired implementations, as shown in the following example:
+When the client-side datastore is constructed, it negotiates the features supported by the server-side datastore, and then returns an underlying implementation that only implements those features.
 
-```go
-type MegaGRPCDatastore struct {
-	grpcds.Datastore
-	grpcds.Batching
-	grpcds.Scrubbed
-	grpcds.Checked
-	grpcds.Persistent
-	grpcds.GC
-	grpcds.TTL
-}
+"Features" are the extra interfaces that Datastores may implement, such as `datastore.Batching`, `datastore.CheckedDatastore`, etc.
 
-func makeMega() *MegaGRPCDatastore {
-	var client pb.DatastoreClient
-	return &MegaGRPCDatastore{
-		Datastore:  grpcds.Datastore{Client: client},
-		Batching:   grpcds.Batching{Client: client},
-		Scrubbed:   grpcds.Scrubbed{Client: client},
-		Checked:    grpcds.Checked{Client: client},
-		Persistent: grpcds.Persistent{Client: client},
-		GC:         grpcds.GC{Client: client},
-		TTL:        grpcds.TTL{Client: client},
-	}
-}
-```
-
-This way, your client-side datastore will match the same interfaces as the underlying server-side datastore. The interfaces that are (and aren't) implemented are important as many datastore consumers switch on interface types to determine behavior.
+This means that client-side interface assertions will behave exactly the same as if you were using the remote datastore directly.

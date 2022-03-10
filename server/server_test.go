@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"testing"
 
 	grpcds "github.com/guseggert/go-ds-grpc"
@@ -32,7 +33,10 @@ func TestGRPCServer(t *testing.T) {
 		panic(err)
 	}
 	client := pb.NewDatastoreClient(conn)
-	grpcDS := grpcds.New(client)
+	grpcDS, err := grpcds.New(ctx, client)
+	if err != nil {
+		panic(err)
+	}
 
 	for i := 0; i < 10; i++ {
 		err := grpcDS.Put(ctx, ds.NewKey(fmt.Sprintf("%d", i)), []byte("foo"))
@@ -56,23 +60,20 @@ func TestGRPCServer(t *testing.T) {
 		assert.Equal(t, []byte("foo"), e.Value)
 		assert.Equal(t, fmt.Sprintf("/%d", i), e.Key)
 	}
+
+	assert.Implements(t, (*ds.Batching)(nil), grpcDS)
+	assert.Implements(t, (*ds.CheckedDatastore)(nil), grpcDS)
+	assert.Implements(t, (*ds.ScrubbedDatastore)(nil), grpcDS)
+	assert.Implements(t, (*ds.GCDatastore)(nil), grpcDS)
+	assert.Implements(t, (*ds.PersistentDatastore)(nil), grpcDS)
+
+	_, ok := grpcDS.(ds.TTLDatastore)
+	assert.False(t, ok, "TTLDatastore")
+	_, ok = grpcDS.(ds.TxnDatastore)
+	assert.False(t, ok, "TxnDatastore")
+
 }
 
-// make sure that all of the implementations implement the right interfaces
-type mega struct {
-	grpcds.Datastore
-	grpcds.Batching
-	grpcds.Scrubbed
-	grpcds.Checked
-	grpcds.Persistent
-	grpcds.GC
-	grpcds.TTL
+func TestThing(t *testing.T) {
+	reflect.StructOf([]reflect.StructField{})
 }
-
-var _ ds.Datastore = (*mega)(nil)
-var _ ds.Batching = (*mega)(nil)
-var _ ds.CheckedDatastore = (*mega)(nil)
-var _ ds.ScrubbedDatastore = (*mega)(nil)
-var _ ds.GCDatastore = (*mega)(nil)
-var _ ds.PersistentDatastore = (*mega)(nil)
-var _ ds.TTLDatastore = (*mega)(nil)

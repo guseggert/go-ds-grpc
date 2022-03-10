@@ -5,6 +5,21 @@ import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
+message FeaturesRequest {}
+message FeaturesResponse {
+  enum Feature {
+    DATASTORE = 0;
+    BATCHING = 1;
+    CHECKED = 2;
+    SCRUBBED = 3;
+    GC = 4;
+    PERSISTENT = 5;
+    TTL = 6;
+    TRANSACTION = 7;
+  }
+  repeated Feature features = 1;
+}
+
 message GetRequest {
   string Key = 1;
 }
@@ -121,6 +136,7 @@ message GetExpirationResponse {
 }
 
 service Datastore {
+  rpc Features(FeaturesRequest) returns (FeaturesResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc Has(HasRequest) returns (HasResponse);
   rpc GetSize(GetSizeRequest) returns (GetSizeResponse);
