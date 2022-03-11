@@ -1,8 +1,12 @@
+// +build ignore
+//go:build ignore
+
 package main
 
 import (
 	"fmt"
 	"math"
+	"os"
 
 	. "github.com/dave/jennifer/jen"
 	pb "github.com/guseggert/go-ds-grpc/proto"
@@ -137,7 +141,25 @@ func main() {
 		feat.emitTypeDef(f)
 	}
 
-	fmt.Printf("%#v", f)
+	fi, err := os.Create("features.go")
+	if err != nil {
+		fmt.Printf("error opening file: %v\n", err)
+		panic(err)
+	}
+
+	err = f.Render(fi)
+	if err != nil {
+		fi.Close()
+		fmt.Printf("error rendering: %v\n", err)
+		panic(err)
+	}
+
+	err = fi.Close()
+	if err != nil {
+		fmt.Printf("error closing file: %v\n", err)
+		panic(err)
+
+	}
 }
 
 func makeNewFunc(f *File) {
