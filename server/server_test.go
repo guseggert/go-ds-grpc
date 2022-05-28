@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"reflect"
+	"strings"
 	"testing"
 
 	grpcds "github.com/guseggert/go-ds-grpc"
@@ -13,6 +13,7 @@ import (
 	"github.com/ipfs/go-datastore/query"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
 
@@ -74,6 +75,27 @@ func TestGRPCServer(t *testing.T) {
 
 }
 
-func TestThing(t *testing.T) {
-	reflect.StructOf([]reflect.StructField{})
+func TestFeatures(t *testing.T) {
+	// Ensure that we can map all datastore features to protobuf features,
+	// so that if a new feature is added, the build fails until the corresponding protobuf feature is added.
+
+	oldFeaturesForDS := featuresForDS
+	defer func() {
+		featuresForDS = oldFeaturesForDS
+	}()
+
+	allFeatures := ds.Features()
+
+	featuresForDS = func(dstore ds.Datastore) (features []ds.Feature) {
+		return allFeatures
+	}
+
+	server := &grpcServer{}
+
+	serverFeatures, err := server.Features(context.Background(), &pb.FeaturesRequest{})
+	require.NoError(t, err)
+
+	for i := range allFeatures {
+		require.Equal(t, serverFeatures.Features[i].String(), strings.ToUpper(allFeatures[i].Name))
+	}
 }

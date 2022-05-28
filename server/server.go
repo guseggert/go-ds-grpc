@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"strings"
 
 	grpcds "github.com/guseggert/go-ds-grpc"
 	pb "github.com/guseggert/go-ds-grpc/proto"
@@ -15,6 +16,8 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+var featuresForDS = ds.FeaturesForDatastore
 
 type grpcServer struct {
 	pb.UnimplementedDatastoreServer
@@ -40,7 +43,7 @@ func WithQueryOrderCodec(codec grpcds.QueryOrderCodec) func(o *Options) {
 	}
 }
 
-func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
+func New(dstore ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 	opts := &Options{
 		QueryFilterCodecs: map[string]grpcds.QueryFilterCodec{},
 		QueryOrderCodecs:  map[string]grpcds.QueryOrderCodec{},
@@ -59,7 +62,7 @@ func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 	}
 
 	return &grpcServer{
-		DS:                ds,
+		DS:                dstore,
 		QueryFilterCodecs: opts.QueryFilterCodecs,
 		QueryOrderCodecs:  opts.QueryOrderCodecs,
 	}
@@ -67,27 +70,14 @@ func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 
 func (s *grpcServer) Features(context.Context, *pb.FeaturesRequest) (*pb.FeaturesResponse, error) {
 	resp := pb.FeaturesResponse{}
-	if _, ok := s.DS.(ds.Batching); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_BATCHING)
+	for _, f := range featuresForDS(s.DS) {
+		pbFeat, ok := pb.FeaturesResponse_Feature_value[strings.ToUpper(f.Name)]
+		if !ok {
+			return nil, fmt.Errorf("unknown feature '%s'", f.Name)
+		}
+		resp.Features = append(resp.Features, pb.FeaturesResponse_Feature(pbFeat))
 	}
-	if _, ok := s.DS.(ds.CheckedDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_CHECKED)
-	}
-	if _, ok := s.DS.(ds.ScrubbedDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_SCRUBBED)
-	}
-	if _, ok := s.DS.(ds.GCDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_GC)
-	}
-	if _, ok := s.DS.(ds.PersistentDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_PERSISTENT)
-	}
-	if _, ok := s.DS.(ds.TTLDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_TTL)
-	}
-	if _, ok := s.DS.(ds.TxnDatastore); ok {
-		resp.Features = append(resp.Features, pb.FeaturesResponse_TRANSACTION)
-	}
+
 	return &resp, nil
 }
 

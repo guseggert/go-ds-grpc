@@ -9,6 +9,7 @@ import (
 	pb "github.com/guseggert/go-ds-grpc/proto"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"github.com/ipfs/go-datastore/scoped"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -80,9 +81,31 @@ func New(ctx context.Context, client pb.DatastoreClient, optFns ...func(o *Optio
 
 	// scope down the concrete type to implement only the methods that the
 	// remote datastore supports
-	dsImpl := newWithFeatures(resp.Features, grpcDS)
 
-	return dsImpl, nil
+	var featureNames []string
+	for _, f := range resp.Features {
+		switch f {
+		case pb.FeaturesResponse_BATCHING:
+			featureNames = append(featureNames, "Batching")
+		case pb.FeaturesResponse_CHECKED:
+			featureNames = append(featureNames, "Checked")
+		case pb.FeaturesResponse_GC:
+			featureNames = append(featureNames, "GC")
+		case pb.FeaturesResponse_SCRUBBED:
+			featureNames = append(featureNames, "Scrubbed")
+		case pb.FeaturesResponse_PERSISTENT:
+			featureNames = append(featureNames, "Persistent")
+		case pb.FeaturesResponse_TTL:
+			featureNames = append(featureNames, "TTL")
+		case pb.FeaturesResponse_TRANSACTION:
+			featureNames = append(featureNames, "Transactionn")
+		default:
+			return nil, fmt.Errorf("unknown feature %q", f.String())
+		}
+	}
+	features := ds.FeaturesByName(featureNames...)
+	scopedDS := scoped.WithFeatures(grpcDS, features)
+	return scopedDS, nil
 }
 
 func (d *Datastore) Get(ctx context.Context, key ds.Key) (value []byte, err error) {
