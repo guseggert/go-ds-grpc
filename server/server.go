@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"sync"
+	"sync/atomic"
 
 	grpcds "github.com/guseggert/go-ds-grpc"
 	pb "github.com/guseggert/go-ds-grpc/proto"
@@ -18,9 +20,17 @@ import (
 
 type grpcServer struct {
 	pb.UnimplementedDatastoreServer
+
+	DS ds.Datastore
+
 	QueryFilterCodecs map[string]grpcds.QueryFilterCodec
 	QueryOrderCodecs  map[string]grpcds.QueryOrderCodec
-	DS                ds.Datastore
+
+	txnsEnabled bool
+	txnCounter  uint64
+
+	txnsMut sync.RWMutex
+	txns    map[uint64]ds.Txn
 }
 
 type Options struct {
@@ -40,7 +50,7 @@ func WithQueryOrderCodec(codec grpcds.QueryOrderCodec) func(o *Options) {
 	}
 }
 
-func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
+func New(dstore ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 	opts := &Options{
 		QueryFilterCodecs: map[string]grpcds.QueryFilterCodec{},
 		QueryOrderCodecs:  map[string]grpcds.QueryOrderCodec{},
@@ -58,11 +68,17 @@ func New(ds ds.Datastore, optFns ...func(o *Options)) *grpcServer {
 		optFn(opts)
 	}
 
-	return &grpcServer{
-		DS:                ds,
+	server := &grpcServer{
+		DS:                dstore,
 		QueryFilterCodecs: opts.QueryFilterCodecs,
 		QueryOrderCodecs:  opts.QueryOrderCodecs,
 	}
+
+	if _, ok := server.DS.(ds.TxnDatastore); ok {
+		server.txnsEnabled = true
+	}
+
+	return server
 }
 
 func (s *grpcServer) Features(context.Context, *pb.FeaturesRequest) (*pb.FeaturesResponse, error) {
@@ -92,7 +108,11 @@ func (s *grpcServer) Features(context.Context, *pb.FeaturesRequest) (*pb.Feature
 }
 
 func (s *grpcServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	v, err := s.DS.Get(ctx, ds.NewKey(req.Key))
+	get := s.DS.Get
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		get = txn.Get
+	}
+	v, err := get(ctx, ds.NewKey(req.Key))
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
@@ -100,7 +120,11 @@ func (s *grpcServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetRespon
 }
 
 func (s *grpcServer) Has(ctx context.Context, req *pb.HasRequest) (*pb.HasResponse, error) {
-	ok, err := s.DS.Has(ctx, ds.NewKey(req.Key))
+	has := s.DS.Has
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		has = txn.Has
+	}
+	ok, err := has(ctx, ds.NewKey(req.Key))
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
@@ -108,7 +132,11 @@ func (s *grpcServer) Has(ctx context.Context, req *pb.HasRequest) (*pb.HasRespon
 }
 
 func (s *grpcServer) GetSize(ctx context.Context, req *pb.GetSizeRequest) (*pb.GetSizeResponse, error) {
-	size, err := s.DS.GetSize(ctx, ds.NewKey(req.Key))
+	getSize := s.DS.GetSize
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		getSize = txn.GetSize
+	}
+	size, err := getSize(ctx, ds.NewKey(req.Key))
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
@@ -116,7 +144,11 @@ func (s *grpcServer) GetSize(ctx context.Context, req *pb.GetSizeRequest) (*pb.G
 }
 
 func (s *grpcServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
-	err := s.DS.Put(ctx, ds.NewKey(req.Key), req.Value)
+	put := s.DS.Put
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		put = txn.Put
+	}
+	err := put(ctx, ds.NewKey(req.Key), req.Value)
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
@@ -124,7 +156,11 @@ func (s *grpcServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutRespon
 }
 
 func (s *grpcServer) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
-	err := s.DS.Delete(ctx, ds.NewKey(req.Key))
+	del := s.DS.Delete
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		del = txn.Delete
+	}
+	err := del(ctx, ds.NewKey(req.Key))
 	if err != nil {
 		return nil, grpcds.DSToGRPCError(err).Err()
 	}
@@ -140,6 +176,11 @@ func (s *grpcServer) Sync(ctx context.Context, req *pb.SyncRequest) (*pb.SyncRes
 }
 
 func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer) error {
+	queryFunc := s.DS.Query
+	if txn, ok := s.getTxn(req.TransactionID); ok {
+		queryFunc = txn.Query
+	}
+
 	filters := []query.Filter{}
 	for name, value := range req.Filters {
 		codec, ok := s.QueryFilterCodecs[name]
@@ -166,7 +207,7 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 		orders = append(orders, order)
 	}
 
-	results, err := s.DS.Query(stream.Context(), query.Query{
+	results, err := queryFunc(stream.Context(), query.Query{
 		Prefix:            req.Prefix,
 		Filters:           filters,
 		Orders:            orders,
@@ -301,4 +342,77 @@ func (s *grpcServer) GetExpiration(ctx context.Context, req *pb.GetExpirationReq
 	}
 	expiration, err := ttl.GetExpiration(ctx, ds.NewKey(req.Key))
 	return &pb.GetExpirationResponse{Expiration: timestamppb.New(expiration)}, grpcds.DSToGRPCError(err).Err()
+}
+
+func (s *grpcServer) NewTransaction(ctx context.Context, req *pb.NewTransactionRequest) (*pb.NewTransactionResponse, error) {
+	txnDS, ok := s.DS.(ds.TxnDatastore)
+	if !ok {
+		return nil, status.New(codes.Unimplemented, "datastore is not a transaction datastore").Err()
+	}
+	txn, err := txnDS.NewTransaction(ctx, req.ReadOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	id := atomic.AddUint64(&s.txnCounter, 1)
+
+	s.txnsMut.Lock()
+	defer s.txnsMut.Unlock()
+	s.txnCounter += 1
+	s.txns[id] = txn
+	return &pb.NewTransactionResponse{TransactionID: id}, nil
+}
+
+// getTxn gets the transaction with the given ID.
+func (s *grpcServer) getTxn(id uint64) (ds.Txn, bool) {
+	if !s.txnsEnabled {
+		return nil, false
+	}
+	s.txnsMut.RLock()
+	defer s.txnsMut.RUnlock()
+	txn, ok := s.txns[id]
+	return txn, ok
+}
+
+func transactionNotFoundError(id uint64) error {
+	return status.New(codes.NotFound, fmt.Sprintf("transaction %d not found", id)).Err()
+}
+
+func (s *grpcServer) CommitTransaction(ctx context.Context, req *pb.CommitTransactionRequest) (*pb.CommitTransactionResponse, error) {
+	txn, ok := s.getTxn(req.TransactionID)
+	if !ok {
+		return nil, transactionNotFoundError(req.TransactionID)
+	}
+	// Note that if a commit fails, it is the caller's responsibility to discard it,
+	// otherwise this will effectively result in a memory leak as the server-side
+	// transaction is not removed from the txns map.
+	//
+	// Also note that there is no locking of commits. Concurrency control is the responsibility
+	// of the underlying datastore, or the client.
+	err := txn.Commit(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.txnsMut.Lock()
+	defer s.txnsMut.Unlock()
+	delete(s.txns, req.TransactionID)
+
+	return &pb.CommitTransactionResponse{}, nil
+}
+
+func (s *grpcServer) DiscardTransaction(ctx context.Context, req *pb.DiscardTransactionRequest) (*pb.DiscardTransactionResponse, error) {
+	txn, ok := s.getTxn(req.TransactionID)
+	if !ok {
+		return nil, transactionNotFoundError(req.TransactionID)
+	}
+
+	txn.Discard(ctx)
+
+	s.txnsMut.Lock()
+	defer s.txnsMut.Unlock()
+	delete(s.txns, req.TransactionID)
+
+	return &pb.DiscardTransactionResponse{}, nil
 }

@@ -30,3 +30,5 @@ When the client-side datastore is constructed, it negotiates the features suppor
 "Features" are the extra interfaces that Datastores may implement, such as `datastore.Batching`, `datastore.CheckedDatastore`, etc.
 
 This means that client-side interface assertions will behave exactly the same as if you were using the remote datastore directly.
+
+### Transactions

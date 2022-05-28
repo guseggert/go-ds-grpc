@@ -9,8 +9,12 @@ import (
 	pb "github.com/guseggert/go-ds-grpc/proto"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"github.com/ipfs/go-datastore/scoped"
+	golog "github.com/ipfs/go-log/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
+
+var log = golog.Logger("grpcds")
 
 // Datastore forwards all requests to a gRPC server.
 type Datastore struct {
@@ -80,13 +84,39 @@ func New(ctx context.Context, client pb.DatastoreClient, optFns ...func(o *Optio
 
 	// scope down the concrete type to implement only the methods that the
 	// remote datastore supports
-	dsImpl := newWithFeatures(resp.Features, grpcDS)
 
-	return dsImpl, nil
+	var featureNames []string
+	for _, f := range resp.Features {
+		switch f {
+		case pb.FeaturesResponse_BATCHING:
+			featureNames = append(featureNames, "Batching")
+		case pb.FeaturesResponse_CHECKED:
+			featureNames = append(featureNames, "Checked")
+		case pb.FeaturesResponse_GC:
+			featureNames = append(featureNames, "GC")
+		case pb.FeaturesResponse_SCRUBBED:
+			featureNames = append(featureNames, "Scrubbed")
+		case pb.FeaturesResponse_PERSISTENT:
+			featureNames = append(featureNames, "Persistent")
+		case pb.FeaturesResponse_TTL:
+			featureNames = append(featureNames, "TTL")
+		case pb.FeaturesResponse_TRANSACTION:
+			featureNames = append(featureNames, "Transactionn")
+		default:
+			return nil, fmt.Errorf("unknown feature %q", f.String())
+		}
+	}
+	features := ds.FeaturesByName(featureNames...)
+	scopedDS := scoped.WithFeatures(grpcDS, features)
+	return scopedDS, nil
 }
 
 func (d *Datastore) Get(ctx context.Context, key ds.Key) (value []byte, err error) {
-	res, err := d.Client.Get(ctx, &pb.GetRequest{Key: key.String()})
+	return d.get(ctx, key, 0)
+}
+
+func (d *Datastore) get(ctx context.Context, key ds.Key, txid uint64) (value []byte, err error) {
+	res, err := d.Client.Get(ctx, &pb.GetRequest{Key: key.String(), TransactionID: txid})
 	if err != nil {
 		return nil, GRPCToDSError(err)
 	}
@@ -94,7 +124,11 @@ func (d *Datastore) Get(ctx context.Context, key ds.Key) (value []byte, err erro
 }
 
 func (d *Datastore) Has(ctx context.Context, key ds.Key) (exists bool, err error) {
-	res, err := d.Client.Has(ctx, &pb.HasRequest{Key: key.String()})
+	return d.has(ctx, key, 0)
+}
+
+func (d *Datastore) has(ctx context.Context, key ds.Key, txid uint64) (bool, error) {
+	res, err := d.Client.Has(ctx, &pb.HasRequest{Key: key.String(), TransactionID: txid})
 	if err != nil {
 		return false, GRPCToDSError(err)
 	}
@@ -102,6 +136,10 @@ func (d *Datastore) Has(ctx context.Context, key ds.Key) (exists bool, err error
 }
 
 func (d *Datastore) GetSize(ctx context.Context, key ds.Key) (size int, err error) {
+	return d.getSize(ctx, key, 0)
+}
+
+func (d *Datastore) getSize(ctx context.Context, key ds.Key, txid uint64) (int, error) {
 	res, err := d.Client.GetSize(ctx, &pb.GetSizeRequest{Key: key.String()})
 	if err != nil {
 		return 0, GRPCToDSError(err)
@@ -109,12 +147,20 @@ func (d *Datastore) GetSize(ctx context.Context, key ds.Key) (size int, err erro
 	return int(res.Size), nil
 }
 func (d *Datastore) Put(ctx context.Context, key ds.Key, value []byte) error {
-	_, err := d.Client.Put(ctx, &pb.PutRequest{Key: key.String(), Value: value})
+	return d.put(ctx, key, value, 0)
+}
+
+func (d *Datastore) put(ctx context.Context, key ds.Key, value []byte, txid uint64) error {
+	_, err := d.Client.Put(ctx, &pb.PutRequest{Key: key.String(), Value: value, TransactionID: txid})
 	return GRPCToDSError(err)
 }
 
 func (d *Datastore) Delete(ctx context.Context, key ds.Key) error {
-	_, err := d.Client.Delete(ctx, &pb.DeleteRequest{Key: key.String()})
+	return d.delete(ctx, key, 0)
+}
+
+func (d *Datastore) delete(ctx context.Context, key ds.Key, txid uint64) error {
+	_, err := d.Client.Delete(ctx, &pb.DeleteRequest{Key: key.String(), TransactionID: txid})
 	return GRPCToDSError(err)
 }
 
@@ -128,6 +174,10 @@ func (d *Datastore) Close() error {
 }
 
 func (d *Datastore) Query(ctx context.Context, q query.Query) (query.Results, error) {
+	return d.query(ctx, q, 0)
+}
+
+func (d *Datastore) query(ctx context.Context, q query.Query, txid uint64) (query.Results, error) {
 	filters := map[string][]byte{}
 	for _, f := range q.Filters {
 		typ := reflect.TypeOf(f)
@@ -163,6 +213,7 @@ func (d *Datastore) Query(ctx context.Context, q query.Query) (query.Results, er
 	}
 
 	res, err := d.Client.Query(ctx, &pb.QueryRequest{
+		TransactionID:     txid,
 		Prefix:            q.Prefix,
 		Filters:           filters,
 		Orders:            orders,
@@ -276,7 +327,8 @@ func (d *Datastore) GetExpiration(ctx context.Context, key ds.Key) (time.Time, e
 	return res.Expiration.AsTime(), GRPCToDSError(err)
 }
 
-func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, error) {
-	// TODO: implement
-	return nil, nil
-}
+// func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, error) {
+// 	id, err := d.Client.NewTransaction(ctx, &pb.NewTransactionRequest{ReadOnly: readOnly})
+// 	// TODO: implement
+// 	return nil, nil
+// }

@@ -38,6 +38,9 @@ type DatastoreClient interface {
 	PutWithTTL(ctx context.Context, in *PutWithTTLRequest, opts ...grpc.CallOption) (*PutWithTTLResponse, error)
 	SetTTL(ctx context.Context, in *SetTTLRequest, opts ...grpc.CallOption) (*SetTTLResponse, error)
 	GetExpiration(ctx context.Context, in *GetExpirationRequest, opts ...grpc.CallOption) (*GetExpirationResponse, error)
+	NewTransaction(ctx context.Context, in *NewTransactionRequest, opts ...grpc.CallOption) (*NewTransactionResponse, error)
+	CommitTransaction(ctx context.Context, in *CommitTransactionRequest, opts ...grpc.CallOption) (*CommitTransactionResponse, error)
+	DiscardTransaction(ctx context.Context, in *DiscardTransactionRequest, opts ...grpc.CallOption) (*DiscardTransactionResponse, error)
 }
 
 type datastoreClient struct {
@@ -215,6 +218,33 @@ func (c *datastoreClient) GetExpiration(ctx context.Context, in *GetExpirationRe
 	return out, nil
 }
 
+func (c *datastoreClient) NewTransaction(ctx context.Context, in *NewTransactionRequest, opts ...grpc.CallOption) (*NewTransactionResponse, error) {
+	out := new(NewTransactionResponse)
+	err := c.cc.Invoke(ctx, "/Datastore/NewTransaction", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *datastoreClient) CommitTransaction(ctx context.Context, in *CommitTransactionRequest, opts ...grpc.CallOption) (*CommitTransactionResponse, error) {
+	out := new(CommitTransactionResponse)
+	err := c.cc.Invoke(ctx, "/Datastore/CommitTransaction", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *datastoreClient) DiscardTransaction(ctx context.Context, in *DiscardTransactionRequest, opts ...grpc.CallOption) (*DiscardTransactionResponse, error) {
+	out := new(DiscardTransactionResponse)
+	err := c.cc.Invoke(ctx, "/Datastore/DiscardTransaction", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DatastoreServer is the server API for Datastore service.
 // All implementations must embed UnimplementedDatastoreServer
 // for forward compatibility
@@ -235,6 +265,9 @@ type DatastoreServer interface {
 	PutWithTTL(context.Context, *PutWithTTLRequest) (*PutWithTTLResponse, error)
 	SetTTL(context.Context, *SetTTLRequest) (*SetTTLResponse, error)
 	GetExpiration(context.Context, *GetExpirationRequest) (*GetExpirationResponse, error)
+	NewTransaction(context.Context, *NewTransactionRequest) (*NewTransactionResponse, error)
+	CommitTransaction(context.Context, *CommitTransactionRequest) (*CommitTransactionResponse, error)
+	DiscardTransaction(context.Context, *DiscardTransactionRequest) (*DiscardTransactionResponse, error)
 	mustEmbedUnimplementedDatastoreServer()
 }
 
@@ -289,6 +322,15 @@ func (UnimplementedDatastoreServer) SetTTL(context.Context, *SetTTLRequest) (*Se
 }
 func (UnimplementedDatastoreServer) GetExpiration(context.Context, *GetExpirationRequest) (*GetExpirationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetExpiration not implemented")
+}
+func (UnimplementedDatastoreServer) NewTransaction(context.Context, *NewTransactionRequest) (*NewTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NewTransaction not implemented")
+}
+func (UnimplementedDatastoreServer) CommitTransaction(context.Context, *CommitTransactionRequest) (*CommitTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CommitTransaction not implemented")
+}
+func (UnimplementedDatastoreServer) DiscardTransaction(context.Context, *DiscardTransactionRequest) (*DiscardTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DiscardTransaction not implemented")
 }
 func (UnimplementedDatastoreServer) mustEmbedUnimplementedDatastoreServer() {}
 
@@ -594,6 +636,60 @@ func _Datastore_GetExpiration_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Datastore_NewTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatastoreServer).NewTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Datastore/NewTransaction",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatastoreServer).NewTransaction(ctx, req.(*NewTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Datastore_CommitTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatastoreServer).CommitTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Datastore/CommitTransaction",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatastoreServer).CommitTransaction(ctx, req.(*CommitTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Datastore_DiscardTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiscardTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatastoreServer).DiscardTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Datastore/DiscardTransaction",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatastoreServer).DiscardTransaction(ctx, req.(*DiscardTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Datastore_ServiceDesc is the grpc.ServiceDesc for Datastore service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -660,6 +756,18 @@ var Datastore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetExpiration",
 			Handler:    _Datastore_GetExpiration_Handler,
+		},
+		{
+			MethodName: "NewTransaction",
+			Handler:    _Datastore_NewTransaction_Handler,
+		},
+		{
+			MethodName: "CommitTransaction",
+			Handler:    _Datastore_CommitTransaction_Handler,
+		},
+		{
+			MethodName: "DiscardTransaction",
+			Handler:    _Datastore_DiscardTransaction_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

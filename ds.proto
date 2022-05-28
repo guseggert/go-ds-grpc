@@ -21,34 +21,39 @@ message FeaturesResponse {
 }
 
 message GetRequest {
-  string Key = 1;
+  uint64 TransactionID = 1;
+  string Key = 2;
 }
 message GetResponse {
   bytes Value = 1;
 }
 
 message HasRequest {
-  string Key = 1;
+  uint64 TransactionID = 1;
+  string Key = 2;
 }
 message HasResponse {
   bool Has = 1;
 }
 
 message GetSizeRequest {
-  string key = 1;
+  uint64 TransactionID = 1;
+  string Key = 2;
 }
 message GetSizeResponse {
   uint64 Size = 1;
 }
 
 message PutRequest {
-  string Key = 1;
-  bytes Value = 2;
+  uint64 TransactionID = 1;
+  string Key = 2;
+  bytes Value = 3;
 }
 message PutResponse {}
 
 message DeleteRequest {
-  string Key = 1;
+  uint64 TransactionID = 1;
+  string Key = 2;
 }
 message DeleteResponse {}
 
@@ -58,14 +63,15 @@ message SyncRequest {
 message SyncResponse {}
 
 message QueryRequest {
-  string Prefix = 1;
-  map<string, bytes> Filters = 2;
-  map<string, bytes> Orders = 3;
-  uint64 Limit = 4;
-  uint64 Offset = 5;
-  bool KeysOnly = 6;
-  bool ReturnExpirations = 7;
-  bool ReturnSizes = 8;
+  uint64 TransactionID = 1;
+  string Prefix = 2;
+  map<string, bytes> Filters = 3;
+  map<string, bytes> Orders = 4;
+  uint64 Limit = 5;
+  uint64 Offset = 6;
+  bool KeysOnly = 7;
+  bool ReturnExpirations = 8;
+  bool ReturnSizes = 9;
 }
 message QueryResult {
   string Key = 1;
@@ -135,6 +141,23 @@ message GetExpirationResponse {
   google.protobuf.Timestamp Expiration = 1;
 }
 
+message NewTransactionRequest {
+    bool ReadOnly = 1
+}
+message NewTransactionResponse {
+  uint64 TransactionID = 1;
+}
+
+message CommitTransactionRequest {
+  uint64 TransactionID = 1;
+}
+message CommitTransactionResponse {}
+
+message DiscardTransactionRequest {
+  uint64 TransactionID = 1;
+}
+message DiscardTransactionResponse {}
+
 service Datastore {
   rpc Features(FeaturesRequest) returns (FeaturesResponse);
   rpc Get(GetRequest) returns (GetResponse);
@@ -152,4 +175,8 @@ service Datastore {
   rpc PutWithTTL(PutWithTTLRequest) returns (PutWithTTLResponse);
   rpc SetTTL(SetTTLRequest) returns (SetTTLResponse);
   rpc GetExpiration(GetExpirationRequest) returns (GetExpirationResponse);
+
+  rpc NewTransaction(NewTransactionRequest) returns (NewTransactionResponse);
+  rpc CommitTransaction(CommitTransactionRequest) returns (CommitTransactionResponse);
+  rpc DiscardTransaction(DiscardTransactionRequest) returns (DiscardTransactionResponse);
 }
