@@ -98,7 +98,7 @@ func New(ctx context.Context, client pb.DatastoreClient, optFns ...func(o *Optio
 		case pb.FeaturesResponse_TTL:
 			featureNames = append(featureNames, "TTL")
 		case pb.FeaturesResponse_TRANSACTION:
-			featureNames = append(featureNames, "Transactionn")
+			featureNames = append(featureNames, "Transaction")
 		default:
 			return nil, fmt.Errorf("unknown feature %q", f.String())
 		}
