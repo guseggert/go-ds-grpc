@@ -82,28 +82,34 @@ func New(ctx context.Context, client pb.DatastoreClient, optFns ...func(o *Optio
 	// scope down the concrete type to implement only the methods that the
 	// remote datastore supports
 
-	var featureNames []string
+	var features []ds.Feature
 	for _, f := range resp.Features {
+		var featureName string
 		switch f {
 		case pb.FeaturesResponse_BATCHING:
-			featureNames = append(featureNames, "Batching")
+			featureName = ds.FeatureNameBatching
 		case pb.FeaturesResponse_CHECKED:
-			featureNames = append(featureNames, "Checked")
+			featureName = ds.FeatureNameChecked
 		case pb.FeaturesResponse_GC:
-			featureNames = append(featureNames, "GC")
+			featureName = ds.FeatureNameGC
 		case pb.FeaturesResponse_SCRUBBED:
-			featureNames = append(featureNames, "Scrubbed")
+			featureName = ds.FeatureNameScrubbed
 		case pb.FeaturesResponse_PERSISTENT:
-			featureNames = append(featureNames, "Persistent")
+			featureName = ds.FeatureNamePersistent
 		case pb.FeaturesResponse_TTL:
-			featureNames = append(featureNames, "TTL")
+			featureName = ds.FeatureNameTTL
 		case pb.FeaturesResponse_TRANSACTION:
-			featureNames = append(featureNames, "Transaction")
+			featureName = ds.FeatureNameTransaction
 		default:
 			return nil, fmt.Errorf("unknown feature %q", f.String())
 		}
+		dsFeat, ok := ds.FeatureByName(featureName)
+		if !ok {
+			return nil, fmt.Errorf("unknown datastore feature %q", f)
+		}
+		features = append(features, dsFeat)
 	}
-	features := ds.FeaturesByName(featureNames...)
+
 	scopedDS := scoped.WithFeatures(grpcDS, features)
 	return scopedDS, nil
 }

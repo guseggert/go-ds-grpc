@@ -203,7 +203,6 @@ func (s *grpcServer) Query(req *pb.QueryRequest, stream pb.Datastore_QueryServer
 func (s *grpcServer) Batch(ctx context.Context, req *pb.BatchRequest) (*pb.BatchResponse, error) {
 	batching, ok := s.DS.(ds.Batching)
 	if !ok {
-		fmt.Printf("uhhh batching is not supported asshole\n")
 		return nil, grpcds.DSToGRPCError(ds.ErrBatchUnsupported).Err()
 	}
 	batch, err := batching.Batch(ctx)
