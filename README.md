@@ -5,7 +5,7 @@ The server wraps a datastore in a gRPC server, so that datastores can run out-of
 The client implements the datastore interface, and calls out to a remote gRPC server.
 
 ## Why not HTTP?
-This could also be implemented with HTTP, but streaming results with chunked encoding and good error messaging is complicated with HTTP, and each client language would need to implement that non-trivial logic. This is much easier with gRPC, which has streaming support and client codegen built-in. The downside is that gRPC is not available for as many programming languages as HTTP. Another downside is that you can't reuse ubiquitous HTTP caching infrastructure and load balancing.
+This could also be implemented with HTTP, but streaming results with chunked encoding and good error messaging is complicated with HTTP, and each client language would need to implement that non-trivial logic. This is much easier with gRPC, which has streaming support and client codegen built-in. The downside is that gRPC is not available for as many programming languages as HTTP. Another downside is that you can't reuse ubiquitous HTTP caching infrastructure and load balancing. The primary use case for this is to run as a sidecar, and gRPC fits that bill well. If there's a significant need for remote datastores, an HTTP version of this might be more appropriate.
 
 ## Queries
 Queries support a number of challenging features for RPC:
