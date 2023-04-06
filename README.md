@@ -1,6 +1,6 @@
 This is a gRPC shim for [go-datastore](https://github.com/ipfs/go-datastore). 
 
-The server wraps a datastore in a gRPC server, so that datastores can run out-of-process. If you have a special datastore implementation, simply wrap your datastore in this server and run it, and your datastore can then be called via gRPC from another process.
+The server wraps a datastore in a gRPC server, so that datastores can run out-of-process. If you have a special datastore implementation, simply wrap your datastore in this server and run it, and your datastore can then be called via gRPC from another process via TCP or Unix domain sockets.
 
 The client implements the datastore interface, and calls out to a remote gRPC server.
 
